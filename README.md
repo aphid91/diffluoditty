@@ -1,0 +1,55 @@
+# diffluoditty
+
+Training dynamical systems by backpropagating through time — starting with a
+PyTorch reproduction of [Growing Neural Cellular Automata](https://distill.pub/2020/growing-ca/)
+(Mordvintsev et al., Distill 2020), as a baseline for later swapping in a
+differentiable Fluoddity particle system.
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/aphid91/diffluoditty/blob/main/notebooks/train_gecko.ipynb)
+
+## Quick start
+
+Open `notebooks/train_gecko.ipynb` in Colab, select a GPU runtime, and run all
+cells. It clones this repo, trains the regenerating gecko (8000 iterations),
+and shows growth, regeneration, and long-term stability.
+
+## Layout
+
+| file | what's in it |
+|---|---|
+| `diffluoditty/system.py` | `DynamicalSystem`: the interface the training loop uses (`seed`, `step`, `render`, `damage`), plus helpers for pytree-shaped states |
+| `diffluoditty/nca.py` | The NCA from the paper: Sobel perception → 1×1-conv MLP → stochastic update → alive masking |
+| `diffluoditty/train.py` | `TrainConfig`, the three paper experiments, sample pool, rollout (optional gradient checkpointing), `Trainer` |
+| `diffluoditty/damage.py` | Damage masks in image space (random circles, halves) |
+| `diffluoditty/target.py` | Emoji / image loading as premultiplied RGBA |
+| `diffluoditty/viz.py` | Matplotlib: live training plots, frame recording, animations |
+| `tests/test_smoke.py` | Fast CPU checks (`python -m pytest tests`) |
+
+## The training loop is state-agnostic
+
+`Trainer` never inspects the state directly. Anything that implements
+
+```python
+class MySystem(DynamicalSystem):
+    def seed(self, n): ...            # n initial states
+    def step(self, state): ...        # one differentiable tick
+    def render(self, state): ...      # -> (B, 4, H, W) premultiplied RGBA
+    def damage(self, state, mask): ...# mask: (B, 1, H, W), 1 = destroy
+```
+
+can be trained with the same pool / damage / BPTT recipe. A state can be a
+tensor or any nested dict/list/tuple of tensors with the batch dimension first
+(e.g. `{"pos": (B, N, 2), "vel": (B, N, 2), "feat": (B, N, K)}` for particles).
+
+For systems that are more expensive per step, set
+`TrainConfig.grad_checkpoint_every` to trade compute for memory.
+
+## Paper defaults
+
+16 channels (RGBA + 12 hidden), 128 hidden units, fire rate 0.5, alive
+threshold 0.1, 40px target padded to 72×72, batch 8, pool 1024, 64–96 steps
+per rollout, Adam lr 2e-3 → 2e-4 at step 2000, per-parameter L2 gradient
+normalisation, 3 damaged samples per batch, 8000 iterations.
+
+Note: the paper's emoji URL no longer resolves (the Noto repo moved its PNGs
+under `2D/`); `target.py` uses the new location.

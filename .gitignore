@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+checkpoints/
+*.gif
+*.mp4
+.ipynb_checkpoints/

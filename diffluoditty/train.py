@@ -20,6 +20,7 @@ equally happy with an NCA or with something stranger.
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import asdict, dataclass, field, replace
 
@@ -51,6 +52,7 @@ class TrainConfig:
     lr_gamma: float = 0.1  # 2e-3 -> 2e-4 at step 2000
     normalize_grads: bool = True
     grad_checkpoint_every: int = 0  # >0: recompute activations in chunks of this many steps to save memory
+    burn_in: int = 0  # steps run WITHOUT gradients before each rollout window (truncated BPTT for chaotic systems)
     log_every: int = 100
 
 
@@ -156,6 +158,9 @@ class Trainer:
 
         idx, x0 = self.make_batch()
         n_steps = int(torch.randint(cfg.min_steps, cfg.max_steps + 1, ()).item())
+        if cfg.burn_in > 0:
+            with torch.no_grad():
+                x0 = rollout(system, x0, cfg.burn_in)
         x = rollout(system, x0, n_steps, cfg.grad_checkpoint_every)
         loss = per_sample_loss(system.render(x), self.target).mean()
 
@@ -163,10 +168,14 @@ class Trainer:
         loss.backward()
         params = [p for p in system.parameters() if p.grad is not None]
         grad_norm = torch.sqrt(sum((p.grad**2).sum() for p in params)).item()
-        if cfg.normalize_grads:
-            for p in params:
-                p.grad /= p.grad.norm() + 1e-8
-        self.optimizer.step()
+        # An exploded (inf / NaN) gradient would poison the weights and Adam's
+        # moment estimates for good; skip the update instead (and record it).
+        skipped = not math.isfinite(grad_norm)
+        if not skipped:
+            if cfg.normalize_grads:
+                for p in params:
+                    p.grad /= p.grad.norm() + 1e-8
+            self.optimizer.step()
         self.scheduler.step()
 
         if self.pool is not None:
@@ -180,6 +189,7 @@ class Trainer:
             grad_norm=grad_norm,
             lr=self.optimizer.param_groups[0]["lr"],
             rollout_steps=n_steps,
+            skipped=skipped,
             seconds=time.time() - t0,
         )
         self.history.append(record)
@@ -213,6 +223,7 @@ class Trainer:
             # Constructor kwargs, if the system records them (NCA does), so
             # comparison code can rebuild the model without knowing its shape.
             system_config=getattr(self.system, "config", None),
+            system_class=type(self.system).__name__,
             optimizer=self.optimizer.state_dict(),
             scheduler=self.scheduler.state_dict(),
             config=asdict(self.config),

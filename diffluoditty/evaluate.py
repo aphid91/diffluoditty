@@ -88,12 +88,14 @@ def load_runs(pattern: str, target: torch.Tensor, device=None, **eval_kwargs) ->
     import glob
     import os
 
+    from .fluoddity import Fluoddity
     from .nca import NCA
 
+    classes = {"NCA": NCA, "Fluoddity": Fluoddity}
     runs = []
     for path in sorted(glob.glob(pattern)):
         ckpt = torch.load(path, map_location="cpu", weights_only=False)
-        model = NCA.from_checkpoint(path, device)
+        model = classes[ckpt.get("system_class", "NCA")].from_checkpoint(path, device)
         runs.append(dict(
             name=ckpt.get("run_name", os.path.splitext(os.path.basename(path))[0]),
             n_params=sum(p.numel() for p in model.parameters()),

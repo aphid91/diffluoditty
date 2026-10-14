@@ -48,3 +48,10 @@ def load_emoji(emoji: str = "gecko", max_size: int = 40) -> torch.Tensor:
 def pad_target(target: torch.Tensor, padding: int = 16) -> torch.Tensor:
     """Surround the target with empty space so the pattern has room to grow (and be damaged)."""
     return F.pad(target, (padding, padding, padding, padding))
+
+
+def silhouette(target: torch.Tensor) -> torch.Tensor:
+    """Keep only the shape: black (RGB = 0) with the original alpha."""
+    out = torch.zeros_like(target)
+    out[3] = target[3]
+    return out

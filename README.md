@@ -1,11 +1,15 @@
 # diffluoditty
 
-Training dynamical systems by backpropagating through time — starting with a
-PyTorch reproduction of [Growing Neural Cellular Automata](https://distill.pub/2020/growing-ca/)
-(Mordvintsev et al., Distill 2020), as a baseline for later swapping in a
-differentiable Fluoddity particle system.
+Training dynamical systems by backpropagating through time. It contains two systems:
+- **A PyTorch reproduction of [Growing Neural Cellular Automata](https://distill.pub/2020/growing-ca/)**
+  (Mordvintsev et al., Distill 2020), as a baseline.
+- **A differentiable port of the [Fluoddity-Core](https://github.com/aphid91/Fluoddity-Core)
+  particle system**, trained with the same recipe. See [docs/fluoddity.md](docs/fluoddity.md).
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/aphid91/diffluoditty/blob/main/notebooks/train_gecko.ipynb)
+| notebook | |
+|---|---|
+| NCA gecko | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/aphid91/diffluoditty/blob/main/notebooks/train_gecko.ipynb) |
+| Fluoddity gecko silhouette | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/aphid91/diffluoditty/blob/main/notebooks/train_fluoddity.ipynb) |
 
 ## Quick start
 
@@ -24,12 +28,16 @@ the bottom plots every run in `checkpoints/` against parameter count.
 |---|---|
 | `diffluoditty/system.py` | `DynamicalSystem`: the interface the training loop uses (`seed`, `step`, `render`, `damage`), plus helpers for pytree-shaped states |
 | `diffluoditty/nca.py` | The NCA from the paper: Sobel perception → 1×1-conv MLP → stochastic update → alive masking. Configurable channels / hidden widths, plus `nca_param_count` and `shapes_for_budget` |
+| `diffluoditty/fluoddity.py` | Differentiable Fluoddity: bilinear sense / scatter-add splat, Fourier rule, per-particle configs, density render, mass-conserving damage |
+| `diffluoditty/fluoddity_rules.py` | Load Fluoddity-Core JSON configs (port of Core's hashes, random rules, cohort mutation) |
+| `diffluoditty/diagnostics.py` | `gradient_horizon`: gradient size and seed-to-seed agreement vs. backprop length |
+| `configs/` | Fluoddity-Core physics configs, usable as starting points |
 | `diffluoditty/train.py` | `TrainConfig`, the three paper experiments, sample pool, rollout (optional gradient checkpointing), `Trainer` |
 | `diffluoditty/evaluate.py` | Fixed, seeded benchmark (grow / persist / regenerate loss, died / exploded rate) and `load_runs` for comparing checkpoints |
 | `diffluoditty/damage.py` | Damage masks in image space (random circles, halves) |
 | `diffluoditty/target.py` | Emoji / image loading as premultiplied RGBA |
 | `diffluoditty/viz.py` | Matplotlib: live training plots, frame recording, animations |
-| `tests/test_smoke.py` | Fast CPU checks (`python -m pytest tests`) |
+| `tests/` | Fast CPU checks, including finite-difference gradient checks (`python -m pytest tests`) |
 
 ## The training loop is state-agnostic
 

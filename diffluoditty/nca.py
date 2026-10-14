@@ -19,6 +19,8 @@ One step:
 
 from __future__ import annotations
 
+from typing import Sequence
+
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -31,7 +33,7 @@ class NCA(DynamicalSystem):
         self,
         size: tuple[int, int] = (72, 72),
         channels: int = 16,
-        hidden: int = 128,
+        hidden: int | Sequence[int] = 128,  # width of the update MLP's hidden layer(s); 0 or () = linear
         fire_rate: float = 0.5,
         alive_threshold: float = 0.1,
         padding_mode: str = "zeros",  # "zeros" matches the paper; "circular" is a common variant
@@ -52,15 +54,33 @@ class NCA(DynamicalSystem):
         # Depthwise conv weight: (C*3, 1, 3, 3), ordered [c0:id, c0:dx, c0:dy, c1:id, ...]
         self.register_buffer("perception_kernel", kernels.repeat(channels, 1, 1).unsqueeze(1))
 
-        self.update = nn.Sequential(
-            nn.Conv2d(channels * 3, hidden, kernel_size=1),
-            nn.ReLU(),
-            nn.Conv2d(hidden, channels, kernel_size=1),
+        widths = [hidden] if isinstance(hidden, int) else list(hidden)
+        widths = [w for w in widths if w > 0]
+        # Everything needed to rebuild this model: saved alongside checkpoints.
+        self.config = dict(
+            size=self.size, channels=channels, hidden=widths, fire_rate=fire_rate,
+            alive_threshold=alive_threshold, padding_mode=padding_mode,
         )
+
+        dims = [channels * 3, *widths, channels]
+        layers = []
+        for i, (d_in, d_out) in enumerate(zip(dims[:-1], dims[1:])):
+            if i > 0:
+                layers.append(nn.ReLU())
+            layers.append(nn.Conv2d(d_in, d_out, kernel_size=1))
+        self.update = nn.Sequential(*layers)
         # "Do nothing" initial behaviour: the last layer starts at zero, so the
         # untrained CA leaves the seed unchanged. Important for stable training.
         nn.init.zeros_(self.update[-1].weight)
         nn.init.zeros_(self.update[-1].bias)
+
+    @classmethod
+    def from_checkpoint(cls, path: str, device=None) -> "NCA":
+        """Rebuild a trained NCA (shape and weights) from a ``Trainer.save`` file."""
+        ckpt = torch.load(path, map_location=device or "cpu", weights_only=False)
+        model = cls(**ckpt["system_config"]).to(device or "cpu")
+        model.load_state_dict(ckpt["system"])
+        return model
 
     # --- DynamicalSystem interface -------------------------------------------
 
@@ -98,3 +118,24 @@ class NCA(DynamicalSystem):
     def alive_mask(self, x: torch.Tensor) -> torch.Tensor:
         alpha = x[:, 3:4]
         return F.max_pool2d(alpha, kernel_size=3, stride=1, padding=1) > self.alive_threshold
+
+
+def nca_param_count(channels: int, hidden: int | Sequence[int]) -> int:
+    """Trainable parameters of ``NCA(channels=..., hidden=...)``, without building it.
+
+    For one hidden layer of width H: (3C*H + H) + (H*C + C) = 4CH + H + C.
+    """
+    widths = [hidden] if isinstance(hidden, int) else list(hidden)
+    dims = [channels * 3, *[w for w in widths if w > 0], channels]
+    return sum(d_in * d_out + d_out for d_in, d_out in zip(dims[:-1], dims[1:]))
+
+
+def shapes_for_budget(budget: int, channels=range(4, 33), tolerance: float = 0.15) -> list[tuple[int, int, int]]:
+    """Single-hidden-layer (channels, hidden, n_params) shapes within ``tolerance`` of ``budget``."""
+    out = []
+    for c in channels:
+        h = round((budget - c) / (4 * c + 1))
+        n = nca_param_count(c, h)
+        if h >= 1 and abs(n - budget) <= tolerance * budget:
+            out.append((c, h, n))
+    return out

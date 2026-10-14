@@ -122,3 +122,45 @@ def animate(frames: list[np.ndarray], fps: int = 30, scale: float = 2.0):
         return (im,)
 
     return animation.FuncAnimation(fig, update, frames=len(tiles), interval=1000 / fps, blit=True)
+
+
+def compare_runs(runs: list[dict], smooth: int = 100) -> None:
+    """Plots for runs from ``evaluate.load_runs``: metrics vs. parameter count,
+    training curves, and what each model's pattern looks like."""
+    metrics = ["grow_loss", "persist_loss", "regen_loss"]
+    fig, axes = plt.subplots(1, 4, figsize=(18, 3.5))
+    for ax, m in zip(axes, metrics):
+        for r in runs:
+            ax.scatter(r["n_params"], r["eval"][m], label=r["name"])
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel("parameters")
+        ax.set_title(m)
+        ax.grid(alpha=0.3, which="both")
+    ax = axes[3]
+    for r in runs:
+        loss = np.log10([h["loss"] for h in r["history"]])
+        k = min(smooth, len(loss))
+        ax.plot(np.convolve(loss, np.ones(k) / k, mode="valid"), label=r["name"])
+    ax.set_xlabel("iteration")
+    ax.set_title(f"log10 training loss ({smooth}-iter mean)")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=7)
+    fig.tight_layout()
+    plt.show()
+
+    # Thumbnails: each row is a run; long-run samples, then the same samples after damage + regrowth.
+    n_cols = max(len(r["eval"]["final_rgba"]) for r in runs)
+    fig, axes = plt.subplots(len(runs), 2 * n_cols, figsize=(1.2 * 2 * n_cols, 1.3 * len(runs)), squeeze=False)
+    for row, r in zip(axes, runs):
+        ev = r["eval"]
+        imgs = list(to_rgb(ev["final_rgba"]))
+        imgs += list(to_rgb(ev["regen_rgba"])) if ev["regen_rgba"] is not None else []
+        for ax in row:
+            ax.axis("off")
+        for ax, img in zip(row, imgs):
+            ax.imshow(img)
+        row[0].set_title(f"{r['name']} ({r['n_params']:,} params)", fontsize=8, loc="left")
+    fig.suptitle("left: long-run samples   right: after damage + regrowth", fontsize=9)
+    fig.tight_layout()
+    plt.show()

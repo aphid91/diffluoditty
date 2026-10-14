@@ -13,13 +13,19 @@ Open `notebooks/train_gecko.ipynb` in Colab, select a GPU runtime, and run all
 cells. It clones this repo, trains the regenerating gecko (8000 iterations),
 and shows growth, regeneration, and long-term stability.
 
+Architecture and training settings are Colab forms at the top (presets for
+the paper's 8.3k-parameter model, ~800, and ~100 parameters). Each run is
+evaluated on a fixed benchmark and checkpointed; the "Compare runs" section at
+the bottom plots every run in `checkpoints/` against parameter count.
+
 ## Layout
 
 | file | what's in it |
 |---|---|
 | `diffluoditty/system.py` | `DynamicalSystem`: the interface the training loop uses (`seed`, `step`, `render`, `damage`), plus helpers for pytree-shaped states |
-| `diffluoditty/nca.py` | The NCA from the paper: Sobel perception → 1×1-conv MLP → stochastic update → alive masking |
+| `diffluoditty/nca.py` | The NCA from the paper: Sobel perception → 1×1-conv MLP → stochastic update → alive masking. Configurable channels / hidden widths, plus `nca_param_count` and `shapes_for_budget` |
 | `diffluoditty/train.py` | `TrainConfig`, the three paper experiments, sample pool, rollout (optional gradient checkpointing), `Trainer` |
+| `diffluoditty/evaluate.py` | Fixed, seeded benchmark (grow / persist / regenerate loss, died / exploded rate) and `load_runs` for comparing checkpoints |
 | `diffluoditty/damage.py` | Damage masks in image space (random circles, halves) |
 | `diffluoditty/target.py` | Emoji / image loading as premultiplied RGBA |
 | `diffluoditty/viz.py` | Matplotlib: live training plots, frame recording, animations |

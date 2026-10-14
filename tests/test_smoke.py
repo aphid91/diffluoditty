@@ -90,3 +90,36 @@ def test_save_and_load(tmp_path):
     assert other.step_count == 3
     for a, b in zip(nca.parameters(), other.system.parameters()):
         assert torch.equal(a, b)
+
+
+def test_architecture_knobs_and_param_count():
+    from diffluoditty import nca_param_count, shapes_for_budget
+
+    for channels, hidden in [(16, 128), (12, 16), (6, 4), (8, (8, 8)), (8, 0)]:
+        nca = NCA(size=(8, 8), channels=channels, hidden=hidden)
+        assert sum(p.numel() for p in nca.parameters()) == nca_param_count(channels, hidden)
+        assert torch.equal(rollout(nca, nca.seed(1), 3), nca.seed(1))  # still a no-op at init
+    assert nca_param_count(16, 128) == 8336  # the paper's model
+    assert all(abs(n - 800) <= 120 for _, _, n in shapes_for_budget(800))
+
+
+def test_evaluate_and_rebuild_from_checkpoint(tmp_path):
+    from diffluoditty import evaluate
+
+    torch.manual_seed(0)
+    target = disc_target()
+    nca = NCA(size=tuple(target.shape[-2:]), channels=8, hidden=12)
+    trainer = Trainer(nca, target, experiment_config("regenerating", pool_size=16, min_steps=8, max_steps=10))
+    trainer.train(5, callback=lambda t: None)
+
+    rng_before = torch.get_rng_state()
+    kw = dict(n=4, grow_window=(10, 20), persist_steps=60, damage_at=30, regen_steps=20)
+    result = evaluate(nca, target, **kw)
+    assert torch.equal(torch.get_rng_state(), rng_before)  # doesn't disturb training randomness
+    assert len(result["curve"]) == 60 and len(result["damaged_curve"]) == 20
+    assert evaluate(nca, target, **kw)["persist_loss"] == result["persist_loss"]  # deterministic
+
+    trainer.save(tmp_path / "run.pt", eval=result)
+    rebuilt = NCA.from_checkpoint(tmp_path / "run.pt")
+    assert rebuilt.config == nca.config
+    assert evaluate(rebuilt, target, **kw)["persist_loss"] == result["persist_loss"]

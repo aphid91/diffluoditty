@@ -205,15 +205,21 @@ class Trainer:
 
     # --- checkpoints ----------------------------------------------------------------
 
-    def save(self, path: str, include_pool: bool = False) -> None:
+    def save(self, path: str, include_pool: bool = False, **extra) -> None:
+        """Save everything needed to resume. ``extra`` keyword args (e.g. eval
+        results, a run name) are stored alongside."""
         ckpt = dict(
             system=self.system.state_dict(),
+            # Constructor kwargs, if the system records them (NCA does), so
+            # comparison code can rebuild the model without knowing its shape.
+            system_config=getattr(self.system, "config", None),
             optimizer=self.optimizer.state_dict(),
             scheduler=self.scheduler.state_dict(),
             config=asdict(self.config),
             history=self.history,
             step_count=self.step_count,
             target=self.target.cpu(),
+            **extra,
         )
         if include_pool and self.pool is not None:
             ckpt["pool"] = self.pool.state
